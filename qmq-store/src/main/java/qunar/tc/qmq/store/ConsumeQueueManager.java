@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 Qunar
+ * Copyright 2018 Qunar, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -11,7 +11,7 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
- * limitations under the License.com.qunar.pay.trade.api.card.service.usercard.UserCardQueryFacade
+ * limitations under the License.
  */
 
 package qunar.tc.qmq.store;
@@ -21,6 +21,7 @@ import com.google.common.collect.Table;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * @author keli.wang
@@ -37,7 +38,8 @@ public class ConsumeQueueManager {
 
     public synchronized ConsumeQueue getOrCreate(final String subject, final String group) {
         if (!queues.contains(subject, group)) {
-            queues.put(subject, group, new ConsumeQueue(storage, subject, group, getLastMaxSequence(subject, group)));
+            final long nextSequence = getLastMaxSequence(subject, group).map(seq -> seq + 1).orElse(0L);
+            queues.put(subject, group, new ConsumeQueue(storage, subject, group, nextSequence));
         }
         return queues.get(subject, group);
     }
@@ -50,12 +52,12 @@ public class ConsumeQueueManager {
         }
     }
 
-    private long getLastMaxSequence(final String subject, final String group) {
+    private Optional<Long> getLastMaxSequence(final String subject, final String group) {
         final ConsumerGroupProgress progress = storage.getConsumerGroupProgress(subject, group);
         if (progress == null) {
-            return -1;
+            return Optional.empty();
         } else {
-            return progress.getPull();
+            return Optional.of(progress.getPull());
         }
     }
 
