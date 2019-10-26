@@ -64,6 +64,7 @@ public class BrokerAcquireMetaProcessor implements NettyRequestProcessor {
         return CompletableFuture.completedFuture(datagram);
     }
 
+    //todo 这里是检查qmq broker是否注册的，注意hostName一定要对，而不是"localhost"
     private BrokerAcquireMetaResponse createResponse(final String hostname, final int servePort) {
         final BrokerMeta broker = store.queryBroker(hostname, servePort).orElseThrow(() -> new RuntimeException("cannot find broker meta for " + hostname + ":" + servePort));
         final BrokerAcquireMetaResponse resp = new BrokerAcquireMetaResponse();

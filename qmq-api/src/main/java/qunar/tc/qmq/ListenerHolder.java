@@ -22,5 +22,8 @@ package qunar.tc.qmq;
 public interface ListenerHolder {
     void stopListen();
 
+    /**
+     * 这个listener的作用是干什么用的？
+     */
     void resumeListen();
 }

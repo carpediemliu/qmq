@@ -17,16 +17,27 @@
 package qunar.tc.qmq.metrics;
 
 import com.google.common.base.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import qunar.tc.qmq.utils.ThreadLocalUtils;
 
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 class MockRegistry implements QmqMetricRegistry {
+
+    private static final Logger LOG = LoggerFactory.getLogger(QmqMetricRegistry.class);
 
     private static final QmqCounter COUNTER = new MockCounter();
 
     private static final QmqMeter METER = new MockMeter();
 
     private static final QmqTimer TIMER = new MockTimer();
+
+    private static final AtomicLong now = new AtomicLong();
+
 
     @Override
     public void newGauge(String name, String[] tags, String[] values, Supplier<Double> supplier) {
@@ -57,7 +68,6 @@ class MockRegistry implements QmqMetricRegistry {
 
         @Override
         public void inc() {
-
         }
 
         @Override
@@ -93,7 +103,12 @@ class MockRegistry implements QmqMetricRegistry {
 
         @Override
         public void update(long duration, TimeUnit unit) {
-
+            if (Objects.isNull(ThreadLocalUtils.getCurrentMills())){
+                ThreadLocalUtils.setCurrentMills(System.currentTimeMillis());
+            }else {
+                LOG.info("current-thread:【{}】createToHandleTimer cost time【{}】ms",Thread.currentThread().getName(),System.currentTimeMillis()-ThreadLocalUtils.getCurrentMills());
+                ThreadLocalUtils.remove();
+            }
         }
     }
 }

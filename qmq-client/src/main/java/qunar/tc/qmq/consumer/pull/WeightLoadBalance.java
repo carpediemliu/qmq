@@ -28,6 +28,10 @@ import java.util.concurrent.ConcurrentMap;
  * Created by zhaohui.yu
  * 5/29/18
  */
+
+/**
+ * 带权重的负载均衡
+ */
 class WeightLoadBalance {
 
     private static final int MIN_WEIGHT = 5;
