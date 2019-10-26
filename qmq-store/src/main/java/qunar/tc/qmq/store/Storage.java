@@ -24,7 +24,6 @@ import qunar.tc.qmq.store.buffer.SegmentBuffer;
 import qunar.tc.qmq.store.event.FixedExecOrderEventBus;
 
 import java.nio.ByteBuffer;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -41,7 +40,7 @@ public interface Storage extends Disposable {
 
     SegmentBuffer getMessageData(final long wroteOffset);
 
-    GetMessageResult getMessage(String subject, long sequence);
+    GetMessageResult getMessage(String partitionName, long sequence);
 
     GetMessageResult pollMessages(String subject, long startSequence, int maxMessages);
 
@@ -59,7 +58,7 @@ public interface Storage extends Disposable {
 
     PutMessageResult putAction(final Action action);
 
-    List<PutMessageResult> putPullLogs(final String subject, final String group, final String consumerId, final List<PullLogMessage> messages);
+    List<PutMessageResult> putPullLogs(final String partitionName, final String consumerGroup, final String consumerId, final List<PullLogMessage> messages);
 
     CheckpointManager getCheckpointManager();
 
@@ -67,7 +66,7 @@ public interface Storage extends Disposable {
 
     Table<String, String, ConsumerGroupProgress> allConsumerGroupProgresses();
 
-    long getMaxPulledMessageSequence(String subject, String group);
+    long getMaxPulledMessageSequence(String partitionName, String group);
 
     long getMessageSequenceByPullLog(final String subject, final String group, final String consumerId, final long pullLogSequence);
 
@@ -89,9 +88,9 @@ public interface Storage extends Disposable {
 
     MessageLogRecordVisitor newMessageLogVisitor(final long startOffset);
 
-    void disableLagMonitor(String subject, String group);
+    void disableLagMonitor(String partitionName, String group);
 
     Table<String, String, PullLog> allPullLogs();
 
-    void destroyPullLog(final String subject, final String group, final String consumerId);
+    void destroyPullLog(final String partitionName, final String group, final String consumerId);
 }

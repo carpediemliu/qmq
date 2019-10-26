@@ -35,7 +35,7 @@ import qunar.tc.qmq.backup.util.KeyValueList;
 import qunar.tc.qmq.backup.util.KeyValueListImpl;
 import qunar.tc.qmq.utils.Bytes;
 import qunar.tc.qmq.utils.CharsetUtils;
-import qunar.tc.qmq.utils.RetrySubjectUtils;
+import qunar.tc.qmq.utils.RetryPartitionUtils;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -53,7 +53,7 @@ import static qunar.tc.qmq.backup.util.KeyTools.generateDecimalFormatKey19;
  * @since 2019/5/29
  */
 public class HBaseRecordStore extends HBaseStore implements RecordStore {
-    private static final Logger LOG = LoggerFactory.getLogger(HBaseRecordStore.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(HBaseRecordStore.class);
 
     private static final RecordQueryResult EMPTY_RECORD_RESULT = new RecordQueryResult(Collections.emptyList());
     private static final int CONSUMER_GROUP_INDEX_IN_RETRY_MESSAGE = MESSAGE_SUBJECT_LENGTH + MESSAGE_ID_LENGTH + CREATE_TIME_LENGTH + BROKER_GROUP_LENGTH;
@@ -72,23 +72,26 @@ public class HBaseRecordStore extends HBaseStore implements RecordStore {
 
     @Override
     public RecordQueryResult findRecords(RecordQuery query) {
-        final String subject = query.getSubject();
-        if (Strings.isNullOrEmpty(subject)) return EMPTY_RECORD_RESULT;
+        String partitionName = query.getPartitionName();
+        if (Strings.isNullOrEmpty(partitionName)) return EMPTY_RECORD_RESULT;
 
         final byte recordCode = query.getRecordCode();
         if (recordCode == RecordEnum.RECORD.getCode()) {
             final String brokerGroup = query.getBrokerGroup();
             if (Strings.isNullOrEmpty(brokerGroup)) return EMPTY_RECORD_RESULT;
-            final List<RecordQueryResult.Record> records = findRecords(subject, new BackupMessageMeta(query.getSequence(), query.getBrokerGroup()), recordCode);
+            final List<RecordQueryResult.Record> records = findRecords(partitionName, new BackupMessageMeta(query.getSequence(), query.getBrokerGroup()), recordCode);
             return retResult(records);
         } else if (recordCode == RecordEnum.RETRY_RECORD.getCode()) {
             final String messageId = query.getMessageId();
             if (Strings.isNullOrEmpty(messageId)) return EMPTY_RECORD_RESULT;
-            return findRetryRecord(RetrySubjectUtils.buildRetrySubject(subject), messageId);
+            return findRetryRecord(RetryPartitionUtils.buildRetryPartitionName(partitionName), messageId);
         } else if (recordCode == RecordEnum.DEAD_RECORD.getCode()) {
             final String messageId = query.getMessageId();
             if (Strings.isNullOrEmpty(messageId)) return EMPTY_RECORD_RESULT;
-            final List<RecordQueryResult.Record> deads = findDeadRecord(subject, messageId);
+            //去掉consumerGroup信息
+            String realPartitionName = RetryPartitionUtils.getRealPartitionName(partitionName);
+            partitionName = RetryPartitionUtils.buildDeadRetryPartitionName(realPartitionName);
+            final List<RecordQueryResult.Record> deads = findDeadRecord(partitionName, messageId);
             if (CollectionUtils.isEmpty(deads)) return EMPTY_RECORD_RESULT;
             return retResult(deads);
         }
@@ -115,7 +118,7 @@ public class HBaseRecordStore extends HBaseStore implements RecordStore {
                 return new RecordQueryResult.Record(consumerGroup, ActionEnum.OMIT.getCode(), RecordEnum.DEAD_RECORD.getCode(), timestamp, "", sequence);
             });
         } catch (Exception e) {
-            LOG.error("Failed to find dead records.", e);
+            LOGGER.error("Failed to find dead records.", e);
             return Collections.emptyList();
         }
     }
@@ -156,7 +159,7 @@ public class HBaseRecordStore extends HBaseStore implements RecordStore {
             final RecordQueryResult.Record ackRecord = get(table, ackKey, R_FAMILY, B_RECORD_QUALIFIERS, kvs -> getRecord(kvs, type));
             if (ackRecord != null) records.add(ackRecord);
         } catch (Exception e) {
-            LOG.error("find retry records with meta: {} failed.", meta, e);
+            LOGGER.error("find retry records with meta: {} failed.", meta, e);
         }
         return records;
     }
@@ -175,7 +178,7 @@ public class HBaseRecordStore extends HBaseStore implements RecordStore {
                 KeyValueList<KeyValue> kvl = new KeyValueListImpl(kvs);
                 byte[] value = kvl.getValue(CONTENT);
                 byte[] rowKey = kvl.getKey();
-                BackupMessageMeta meta = getMessageMeta(value);
+                BackupMessageMeta meta = getMessageMeta(subject, null, value);
                 if (meta != null && rowKey.length > CONSUMER_GROUP_INDEX_IN_RETRY_MESSAGE) {
                     byte[] consumerGroupId = new byte[CONSUMER_GROUP_LENGTH];
                     System.arraycopy(rowKey, CONSUMER_GROUP_INDEX_IN_RETRY_MESSAGE, consumerGroupId, 0, CONSUMER_GROUP_LENGTH);
@@ -185,7 +188,7 @@ public class HBaseRecordStore extends HBaseStore implements RecordStore {
             });
             return Lists.newArrayList(Sets.newHashSet(metas));
         } catch (Exception e) {
-            LOG.error("Failed to scan messages meta.", e);
+            LOGGER.error("Failed to scan messages meta.", e);
             return Lists.newArrayList();
         }
     }
@@ -196,18 +199,18 @@ public class HBaseRecordStore extends HBaseStore implements RecordStore {
     }
 
     // record && retry record && (resend record not included)
-    private List<RecordQueryResult.Record> findRecords(String subject, BackupMessageMeta meta, byte type) {
+    private List<RecordQueryResult.Record> findRecords(String partitionName, BackupMessageMeta meta, byte type) {
         try {
             final long sequence = meta.getSequence();
             final String brokerGroup = meta.getBrokerGroup();
-            final String subjectId = dicService.name2Id(subject);
+            final String partitionNameId = dicService.name2Id(partitionName);
             final String brokerGroupId = dicService.name2Id(brokerGroup);
-            final String recordRegexp = BackupMessageKeyRegexpBuilder.buildRecordRegexp(subjectId, sequence, brokerGroupId);
-            final String startKey = BackupMessageKeyRangeBuilder.buildRecordStartKey(subjectId, sequence, brokerGroupId);
-            final String endKey = BackupMessageKeyRangeBuilder.buildRecordEndKey(subjectId, sequence, brokerGroupId);
+            final String recordRegexp = BackupMessageKeyRegexpBuilder.buildRecordRegexp(partitionNameId, sequence, brokerGroupId);
+            final String startKey = BackupMessageKeyRangeBuilder.buildRecordStartKey(partitionNameId, sequence, brokerGroupId);
+            final String endKey = BackupMessageKeyRangeBuilder.buildRecordEndKey(partitionNameId, sequence, brokerGroupId);
             return scan(table, recordRegexp, startKey, endKey, 1000, 0, R_FAMILY, B_RECORD_QUALIFIERS, kvs -> getRecord(kvs, type));
         } catch (Exception e) {
-            LOG.error("Failed to find records.", e);
+            LOGGER.error("Failed to find records.", e);
             return Collections.emptyList();
         }
     }

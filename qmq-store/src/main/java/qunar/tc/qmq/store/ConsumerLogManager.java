@@ -32,6 +32,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import qunar.tc.qmq.common.JsonUtils;
 import qunar.tc.qmq.monitor.QMon;
 
 /**
@@ -39,9 +40,10 @@ import qunar.tc.qmq.monitor.QMon;
  * @since 2017/8/19
  */
 public class ConsumerLogManager implements AutoCloseable {
-    private static final Logger LOG = LoggerFactory.getLogger(ConsumerLogManager.class);
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Logger LOGGER = LoggerFactory.getLogger(ConsumerLogManager.class);
+
+    private static final ObjectMapper MAPPER = JsonUtils.getMapper();
 
     private final StorageConfig config;
 
@@ -57,7 +59,7 @@ public class ConsumerLogManager implements AutoCloseable {
     }
 
     private void loadConsumerLogs(final Map<String, Long> maxSequences) {
-        LOG.info("Start load consumer logs");
+        LOGGER.info("Start load consumer logs");
 
         final File root = new File(config.getConsumerLogStorePath());
         final File[] consumerLogDirs = root.listFiles();
@@ -69,12 +71,12 @@ public class ConsumerLogManager implements AutoCloseable {
 
 				final String subject = consumerLogDir.getName();
 				if (BREAKING_WHITESPACE.matchesAnyOf(subject)) {
-					LOG.error("consumer log directory name is invalid, skip. name: {}", subject);
+					LOGGER.error("consumer log directory name is invalid, skip. name: {}", subject);
 					continue;
 				}
                 final Long maxSequence = maxSequences.get(subject);
                 if (maxSequence == null) {
-                    LOG.warn("cannot find max sequence for subject {} in checkpoint.", subject);
+                    LOGGER.warn("cannot find max sequence for subject {} in checkpoint.", subject);
                     logs.put(subject, new ConsumerLog(config, subject));
                 } else {
                     logs.put(subject, new ConsumerLog(config, subject, maxSequence));
@@ -82,7 +84,7 @@ public class ConsumerLogManager implements AutoCloseable {
             }
         }
 
-        LOG.info("Load consumer logs done");
+        LOGGER.info("Load consumer logs done");
     }
 
     void initConsumerLogOffset(final MessageMemTable table) {
@@ -163,12 +165,12 @@ public class ConsumerLogManager implements AutoCloseable {
         final Map<String, Long> offsets = offsetStore.loadCheckpoint();
         if (offsets == null) return;
 
-        LOG.info("adjust consumer log min offset with offset file {}", fileName);
+        LOGGER.info("adjust consumer log min offset with offset file {}", fileName);
 
         for (Map.Entry<String, Long> entry : offsets.entrySet()) {
             final ConsumerLog log = logs.get(entry.getKey());
             if (log == null) {
-                LOG.warn("cannot find consumer log {} while adjust min offset.", entry.getKey());
+                LOGGER.warn("cannot find consumer log {} while adjust min offset.", entry.getKey());
             } else {
                 long adjustedMinOffset = entry.getValue() + 1;
                 log.setMinSequence(adjustedMinOffset);

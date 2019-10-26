@@ -30,6 +30,7 @@ public interface CommandCode {
 
     short BROKER_ERROR = 51;
     short BROKER_REJECT = 52;
+    short ACQUIRE_LOCK_FAILED = 53;
     short PARAM_ERROR = 53;
 
     // request code
@@ -52,6 +53,10 @@ public interface CommandCode {
 
     short UID_ASSIGN = 50;
     short UID_ACQUIRE = 51;
+
+    // partitions
+    short QUERY_SUBJECT = 60;
+    short RELEASE_PULL_LOCK = 61;
 
     // heartbeat
     short HEARTBEAT = 100;

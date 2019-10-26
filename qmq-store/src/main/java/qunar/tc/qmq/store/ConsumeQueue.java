@@ -19,7 +19,7 @@ package qunar.tc.qmq.store;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import qunar.tc.qmq.monitor.QMon;
-import qunar.tc.qmq.utils.RetrySubjectUtils;
+import qunar.tc.qmq.utils.RetryPartitionUtils;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * @since 2017/7/31
  */
 public class ConsumeQueue {
-    private static final Logger LOG = LoggerFactory.getLogger(ConsumeQueue.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(ConsumeQueue.class);
 
     private final Storage storage;
     private final String subject;
@@ -59,7 +59,7 @@ public class ConsumeQueue {
         enableLagMonitor();
 
         long currentSequence = nextSequence.get();
-        if (RetrySubjectUtils.isRetrySubject(subject)) {
+        if (RetryPartitionUtils.isRetryPartitionName(subject)) {
             return storage.pollMessages(subject, currentSequence, maxMessages, this::isDelayReached);
         } else {
             final GetMessageResult result = storage.pollMessages(subject, currentSequence, maxMessages);
@@ -67,7 +67,7 @@ public class ConsumeQueue {
             long delta = actualSequence - currentSequence;
             if (delta > 0) {
                 QMon.expiredMessagesCountInc(subject, group, delta);
-                LOG.error("next sequence skipped. subject: {}, group: {}, nextSequence: {}, result: {}", subject, group, currentSequence, result);
+                LOGGER.error("next sequence skipped. subject: {}, group: {}, nextSequence: {}, result: {}", subject, group, currentSequence, result);
             }
             return result;
         }
@@ -82,10 +82,10 @@ public class ConsumeQueue {
         try {
             if (monitorEnabled.compareAndSet(false, true)) {
                 QMon.messageSequenceLagGauge(subject, group, () -> (double) getQueueCount());
-                LOG.info("enable message sequence lag monitor:{} {}", subject, group);
+                LOGGER.info("enable message sequence lag monitor:{} {}", subject, group);
             }
         } catch (Throwable e) {
-            LOG.error("enable message sequence lag monitor error:{} {}", subject, group, e);
+            LOGGER.error("enable message sequence lag monitor error:{} {}", subject, group, e);
         }
     }
 
@@ -93,7 +93,7 @@ public class ConsumeQueue {
         if (monitorEnabled.compareAndSet(true, false)) {
             // TODO(keli.wang): can we avoid remove this metrics by clean up all useless data after offline all consumers in this group?
             QMon.removeMessageSequenceLag(subject, group);
-            LOG.info("disable message sequence lag monitor:{} {}", subject, group);
+            LOGGER.info("disable message sequence lag monitor:{} {}", subject, group);
         }
     }
 }

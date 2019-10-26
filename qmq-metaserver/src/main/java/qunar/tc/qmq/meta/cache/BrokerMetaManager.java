@@ -40,7 +40,7 @@ import java.util.concurrent.TimeUnit;
  * @since 2019-02-26 15:11
  */
 public final class BrokerMetaManager implements Disposable {
-    private static final Logger LOG = LoggerFactory.getLogger(BrokerMetaManager.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(BrokerMetaManager.class);
 
     private static final long DEFAULT_REFRESH_PERIOD_SECONDS = 5L;
     private static final int DEFAULT_PORT = 8080;
@@ -66,7 +66,7 @@ public final class BrokerMetaManager implements Disposable {
         this.brokerStore = brokerStore;
         this.httpPortMapConfig = DynamicConfigLoader.load("broker-http-port-map.properties", false);
         refresh();
-        scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryBuilder().setNameFormat("broker-meta-refresh-%d").build());
+        scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryBuilder().setNameFormat("broker-meta-refreshMetaInfo-%d").build());
         scheduledExecutorService.scheduleAtFixedRate(this::refresh, DEFAULT_REFRESH_PERIOD_SECONDS, DEFAULT_REFRESH_PERIOD_SECONDS, TimeUnit.SECONDS);
     }
 
@@ -94,7 +94,7 @@ public final class BrokerMetaManager implements Disposable {
         try {
             return String.valueOf(httpPortMapConfig.getInt(host + SLASH + serverPort, DEFAULT_PORT));
         } catch (Exception e) {
-            LOG.error("Failed to get slave http port.", e);
+            LOGGER.error("Failed to get slave http port.", e);
             return EMPTY;
         }
     }

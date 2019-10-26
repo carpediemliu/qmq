@@ -23,24 +23,35 @@ import org.slf4j.LoggerFactory;
 import qunar.tc.qmq.monitor.QMon;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static qunar.tc.qmq.store.GroupAndSubject.groupAndSubject;
+import static qunar.tc.qmq.store.GroupAndPartition.groupAndPartition;
 
 /**
  * @author keli.wang
  * @since 2017/8/3
  */
 public class PullLogManager implements AutoCloseable {
-    private static final Logger LOG = LoggerFactory.getLogger(PullLogManager.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(PullLogManager.class);
 
     private final StorageConfig config;
     private final Table<String, String, PullLog> logs;
+    private final ReadWriteLock logsGuard;
 
     public PullLogManager(final StorageConfig config, final Table<String, String, ConsumerGroupProgress> consumerGroupProgresses) {
         this.config = config;
         this.logs = HashBasedTable.create();
+        this.logsGuard = new ReentrantReadWriteLock();
 
         loadPullLogs(consumerGroupProgresses);
     }
@@ -48,13 +59,32 @@ public class PullLogManager implements AutoCloseable {
     private void loadPullLogs(final Table<String, String, ConsumerGroupProgress> consumerGroupProgresses) {
         final File pullLogsRoot = new File(config.getPullLogStorePath());
         final File[] consumerIdDirs = pullLogsRoot.listFiles();
-        if (consumerIdDirs != null) {
-            for (final File consumerIdDir : consumerIdDirs) {
-                if (!consumerIdDir.isDirectory()) {
-                    continue;
+        if (consumerIdDirs == null) {
+            return;
+        }
+
+        final ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        final CountDownLatch latch = new CountDownLatch(consumerIdDirs.length);
+
+        for (final File consumerIdDir : consumerIdDirs) {
+            executor.submit(() -> {
+                try {
+                    if (!consumerIdDir.isDirectory()) {
+                        return;
+                    }
+                    loadPullLogsByConsumerId(consumerIdDir, consumerGroupProgresses);
+                } finally {
+                    latch.countDown();
                 }
-                loadPullLogsByConsumerId(consumerIdDir, consumerGroupProgresses);
-            }
+            });
+        }
+
+        try {
+            latch.await();
+            executor.shutdown();
+            executor.awaitTermination(1, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            LOGGER.warn("interrupted during shutdown executor", e);
         }
     }
 
@@ -67,29 +97,40 @@ public class PullLogManager implements AutoCloseable {
                 }
                 final File[] segments = groupAndSubjectDir.listFiles();
                 if (segments == null || segments.length == 0) {
-                    LOG.info("need delete empty pull log dir: {}", groupAndSubjectDir.getAbsolutePath());
+                    LOGGER.info("need delete empty pull log dir: {}", groupAndSubjectDir.getAbsolutePath());
                     continue;
                 }
 
                 final String consumerId = consumerIdDir.getName();
                 final String groupAndSubject = groupAndSubjectDir.getName();
+
                 final Long maxSequence = getPullLogMaxSequence(consumerGroupProgresses, groupAndSubject, consumerId);
                 if (maxSequence == null) {
-                    logs.put(consumerId, groupAndSubject, new PullLog(config, consumerId, groupAndSubject));
+                    putPullLog(consumerId, groupAndSubject, new PullLog(config, consumerId, groupAndSubject));
                 } else {
-                    logs.put(consumerId, groupAndSubject, new PullLog(config, consumerId, groupAndSubject, maxSequence));
+                    putPullLog(consumerId, groupAndSubject, new PullLog(config, consumerId, groupAndSubject, maxSequence));
                 }
             }
         }
     }
 
+    private void putPullLog(final String consumerId, final String groupAndSubject, final PullLog log) {
+        final Lock lock = logsGuard.writeLock();
+        lock.lock();
+        try {
+            logs.put(consumerId, groupAndSubject, log);
+        } finally {
+            lock.unlock();
+        }
+    }
+
     private Long getPullLogMaxSequence(final Table<String, String, ConsumerGroupProgress> consumerGroupProgresses,
                                        final String groupAndSubject, final String consumerId) {
-        final GroupAndSubject parsedGroupAndSubject = GroupAndSubject.parse(groupAndSubject);
-        final String subject = parsedGroupAndSubject.getSubject();
-        final String group = parsedGroupAndSubject.getGroup();
+        final GroupAndPartition parsedGroupAndPartition = GroupAndPartition.parse(groupAndSubject);
+        final String partitionName = parsedGroupAndPartition.getPartitionName();
+        final String consumerGroup = parsedGroupAndPartition.getGroup();
 
-        final ConsumerGroupProgress groupProgress = consumerGroupProgresses.get(subject, group);
+        final ConsumerGroupProgress groupProgress = consumerGroupProgresses.get(partitionName, consumerGroup);
         if (groupProgress == null) {
             return null;
         }
@@ -103,37 +144,70 @@ public class PullLogManager implements AutoCloseable {
     }
 
     public PullLog get(final String subject, final String group, final String consumerId) {
-        String groupAndSubject = groupAndSubject(subject, group);
-        synchronized (logs) {
+        String groupAndSubject = groupAndPartition(subject, group);
+        final Lock lock = logsGuard.readLock();
+        lock.lock();
+        try {
             return logs.get(consumerId, groupAndSubject);
+        } finally {
+            lock.unlock();
         }
     }
 
     public PullLog getOrCreate(final String subject, final String group, final String consumerId) {
-        final String groupAndSubject = groupAndSubject(subject, group);
-        synchronized (logs) {
+        final String groupAndSubject = groupAndPartition(subject, group);
+        final Lock readLock = logsGuard.readLock();
+        readLock.lock();
+        try {
+            PullLog pullLog = logs.get(consumerId, groupAndSubject);
+            if (pullLog != null)
+                return pullLog;
+        } finally {
+            readLock.unlock();
+        }
+
+        final Lock writeLock = logsGuard.writeLock();
+        writeLock.lock();
+        try {
             if (!logs.contains(consumerId, groupAndSubject)) {
                 logs.put(consumerId, groupAndSubject, new PullLog(config, consumerId, groupAndSubject));
             }
 
             return logs.get(consumerId, groupAndSubject);
+        } finally {
+            writeLock.unlock();
         }
     }
 
     public Table<String, String, PullLog> getLogs() {
-        synchronized (logs) {
+        final Lock lock = logsGuard.readLock();
+        lock.lock();
+        try {
             return HashBasedTable.create(logs);
+        } finally {
+            lock.unlock();
         }
     }
 
     public void flush() {
         final long start = System.currentTimeMillis();
+        List<PullLog> list = allLogs();
         try {
-            for (final PullLog log : logs.values()) {
+            for (final PullLog log : list) {
                 log.flush();
             }
         } finally {
             QMon.flushPullLogTimer(System.currentTimeMillis() - start);
+        }
+    }
+
+    private List<PullLog> allLogs() {
+        Lock lock = logsGuard.readLock();
+        lock.lock();
+        try {
+            return new ArrayList<>(logs.values());
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -163,9 +237,13 @@ public class PullLogManager implements AutoCloseable {
     }
 
     private void remove(String subject, String group, String consumerId) {
-        String groupAndSubject = groupAndSubject(subject, group);
-        synchronized (logs) {
+        String groupAndSubject = groupAndPartition(subject, group);
+        final Lock lock = logsGuard.writeLock();
+        lock.lock();
+        try {
             logs.remove(consumerId, groupAndSubject);
+        } finally {
+            lock.unlock();
         }
     }
 

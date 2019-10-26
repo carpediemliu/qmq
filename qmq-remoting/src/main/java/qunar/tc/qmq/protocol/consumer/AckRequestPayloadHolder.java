@@ -32,11 +32,11 @@ public class AckRequestPayloadHolder implements PayloadHolder {
 
     @Override
     public void writeBody(ByteBuf out) {
-        PayloadHolderUtils.writeString(request.getSubject(), out);
-        PayloadHolderUtils.writeString(request.getGroup(), out);
+        PayloadHolderUtils.writeString(request.getPartitionName(), out);
+        PayloadHolderUtils.writeString(request.getConsumerGroup(), out);
         PayloadHolderUtils.writeString(request.getConsumerId(), out);
         out.writeLong(request.getPullOffsetBegin());
         out.writeLong(request.getPullOffsetLast());
-        out.writeByte(request.isBroadcast());
+        out.writeByte(request.getIsExclusiveConsume());
     }
 }

@@ -20,23 +20,54 @@ package qunar.tc.qmq.protocol;
  * @author yiqun.fan create on 17-7-4.
  */
 public class RemotingHeader {
+
     public static final int DEFAULT_MAGIC_CODE = 0xdec1_0ade;
 
-    public static final short VERSION_4 = 4;
+
+    private static final short VERSION_4 = 4;
     /**
      * add schedule time in message header for delay message
      */
-    public static final short VERSION_7 = 7;
+    private static final short VERSION_7 = 7;
 
     /**
      * add tags field for message header
      */
-    public static final short VERSION_8 = 8;
+    private static final short VERSION_8 = 8;
 
     /**
      * add pull request filters
      */
-    public static final short VERSION_9 = 9;
+    private static final short FILTER_VERSION = 9;
+
+    /**
+     * ordered message version
+     */
+    private static final short ORDERED_MESSAGE_VERSION = 10;
+
+    public static short getScheduleTimeVersion() {
+        return VERSION_7;
+    }
+
+    public static boolean supportTags(int version) {
+        return version >= VERSION_8;
+    }
+
+    public static boolean supportFilter(int version) {
+        return version >= FILTER_VERSION;
+    }
+
+    public static boolean supportOrderedMessage(int version) {
+        return version >= ORDERED_MESSAGE_VERSION;
+    }
+
+    public static short getOrderedMessageVersion() {
+        return ORDERED_MESSAGE_VERSION;
+    }
+
+    public static short getCurrentVersion() {
+        return ORDERED_MESSAGE_VERSION;
+    }
 
     public static final short MIN_HEADER_SIZE = 18;  // magic code(4) + code(2) + version(2) + opaque(4) + flag(4) + request code(2)
     public static final short HEADER_SIZE_LEN = 2;
@@ -46,7 +77,7 @@ public class RemotingHeader {
 
     private int magicCode = DEFAULT_MAGIC_CODE;
     private short code;
-    private short version = VERSION_8;
+    private short version = getCurrentVersion();
     private int opaque;
     private int flag;
     private short requestCode = CommandCode.PLACEHOLDER;
@@ -98,6 +129,7 @@ public class RemotingHeader {
     public void setRequestCode(short requestCode) {
         this.requestCode = requestCode;
     }
+
 
     @Override
     public String toString() {

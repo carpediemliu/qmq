@@ -16,11 +16,6 @@
 
 package qunar.tc.qmq.processor;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Queue;
-import java.util.concurrent.LinkedBlockingQueue;
-
 import com.google.common.base.Function;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.Futures;
@@ -29,11 +24,7 @@ import com.google.common.util.concurrent.SettableFuture;
 import io.netty.buffer.ByteBuf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import qunar.tc.qmq.base.MessageHeader;
-import qunar.tc.qmq.base.RawMessage;
-import qunar.tc.qmq.base.ReceiveResult;
-import qunar.tc.qmq.base.ReceivingMessage;
-import qunar.tc.qmq.base.SyncRequest;
+import qunar.tc.qmq.base.*;
 import qunar.tc.qmq.configuration.BrokerConfig;
 import qunar.tc.qmq.configuration.DynamicConfig;
 import qunar.tc.qmq.monitor.QMon;
@@ -47,15 +38,20 @@ import qunar.tc.qmq.protocol.producer.MessageProducerCode;
 import qunar.tc.qmq.store.MessageStoreWrapper;
 import qunar.tc.qmq.util.RemotingBuilder;
 import qunar.tc.qmq.utils.CharsetUtils;
-import qunar.tc.qmq.utils.RetrySubjectUtils;
+import qunar.tc.qmq.utils.RetryPartitionUtils;
 import qunar.tc.qmq.utils.SubjectUtils;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * @author yunfeng.yang
  * @since 2017/8/7
  */
 public class SendMessageWorker {
-    private static final Logger LOG = LoggerFactory.getLogger(SendMessageWorker.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SendMessageWorker.class);
 
     private final DynamicConfig config;
     private final Invoker invoker;
@@ -85,15 +81,15 @@ public class SendMessageWorker {
     }
 
     private void monitorMessageReceived(long receiveTime, String subject) {
-        if (RetrySubjectUtils.isRetrySubject(subject)) {
-            String[] subjectAndGroup = RetrySubjectUtils.parseSubjectAndGroup(subject);
+        if (RetryPartitionUtils.isRetryPartitionName(subject)) {
+            String[] subjectAndGroup = RetryPartitionUtils.parseSubjectAndGroup(subject);
             if (subjectAndGroup == null || subjectAndGroup.length != 2) return;
             QMon.consumerErrorCount(subjectAndGroup[0], subjectAndGroup[1]);
             return;
         }
 
-        if (RetrySubjectUtils.isDeadRetrySubject(subject)) {
-            String[] subjectAndGroup = RetrySubjectUtils.parseSubjectAndGroup(subject);
+        if (RetryPartitionUtils.isDeadRetryPartitionName(subject)) {
+            String[] subjectAndGroup = RetryPartitionUtils.parseSubjectAndGroup(subject);
             if (subjectAndGroup == null || subjectAndGroup.length != 2) return;
             QMon.consumerErrorCount(subjectAndGroup[0], subjectAndGroup[1]);
             QMon.deadLetterQueueCount(subjectAndGroup[0], subjectAndGroup[1]);
@@ -155,7 +151,7 @@ public class SendMessageWorker {
     }
 
     private void error(ReceivingMessage message, Throwable e) {
-        LOG.error("save message error", e);
+        LOGGER.error("save message error", e);
         QMon.receivedFailedCountInc(message.getSubject());
         end(message, new ReceiveResult(message.getMessageId(), MessageProducerCode.STORE_ERROR, "store error", -1));
     }
@@ -180,7 +176,7 @@ public class SendMessageWorker {
         try {
             message.done(result);
         } catch (Throwable e) {
-            LOG.error("send response failed {}", message.getMessageId());
+            LOGGER.error("send response failed {}", message.getMessageId());
         } finally {
             QMon.processTime(message.getSubject(), System.currentTimeMillis() - message.getReceivedTime());
         }

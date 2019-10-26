@@ -18,7 +18,7 @@ package qunar.tc.qmq.backup.service;
 
 import com.google.common.base.Strings;
 import qunar.tc.qmq.utils.CharsetUtils;
-import qunar.tc.qmq.utils.RetrySubjectUtils;
+import qunar.tc.qmq.utils.RetryPartitionUtils;
 
 import java.util.Date;
 
@@ -132,10 +132,10 @@ public class BackupKeyGenerator {
         final String subjectId = dicService.name2Id(subject);
         final String createTimeKey = generateDateKey(createTime);
         final String messageIdKey = generateMD5Key(messageId);
-        if (RetrySubjectUtils.isRealSubject(subject)) {
+        if (RetryPartitionUtils.isRealPartitionName(subject)) {
             return generateMessageKey(toUtf8(subjectId), toUtf8(createTimeKey), toUtf8(messageIdKey));
         }
-        if (RetrySubjectUtils.isRetrySubject(subject)) {
+        if (RetryPartitionUtils.isRetryPartitionName(subject)) {
             String sequenceId = generateDecimalFormatKey19(sequence);
             String brokerGroupId = dicService.name2Id(brokerGroup);
             String consumerGroupId = dicService.name2Id(consumerGroup);
@@ -172,12 +172,12 @@ public class BackupKeyGenerator {
 
     }
 
-    public byte[] generateRecordKey(String subject, long sequence, String brokerGroup, String consumerGroup, byte[] action) {
-        final String subjectId = dicService.name2Id(subject);
+    public byte[] generateRecordKey(String partitionName, long sequence, String brokerGroup, String consumerGroup, byte[] action) {
+        final String partitionNameId = dicService.name2Id(partitionName);
         final String sequenceId = generateDecimalFormatKey19(sequence);
         final String brokerGroupId = dicService.name2Id(brokerGroup);
         final String consumerGroupId = dicService.name2Id(consumerGroup);
-        return generateRecordKey(toUtf8(subjectId), toUtf8(sequenceId), toUtf8(brokerGroupId), toUtf8(consumerGroupId), action);
+        return generateRecordKey(toUtf8(partitionNameId), toUtf8(sequenceId), toUtf8(brokerGroupId), toUtf8(consumerGroupId), action);
     }
 
     public byte[] generateRecordKey(byte[] subject, byte[] sequence, byte[] brokerGroup, byte[] consumerGroup, byte[] action) {

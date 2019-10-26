@@ -36,7 +36,7 @@ import qunar.tc.qmq.backup.service.BackupKeyGenerator;
 import qunar.tc.qmq.backup.store.KvStore;
 import qunar.tc.qmq.metrics.Metrics;
 import qunar.tc.qmq.store.MessageQueryIndex;
-import qunar.tc.qmq.utils.RetrySubjectUtils;
+import qunar.tc.qmq.utils.RetryPartitionUtils;
 
 /**
  * @author xufeng.deng dennisdxf@gmail.com
@@ -87,10 +87,10 @@ public class DeadRecordBatchBackup extends AbstractBatchBackup<MessageQueryIndex
             for (int i = 0; i < messages.size(); ++i) {
                 final MessageQueryIndex message = messages.get(i);
                 try {
-                    final String subject = message.getSubject();
-                    final String realSubject = RetrySubjectUtils.getRealSubject(subject);
-                    final String consumerGroup = RetrySubjectUtils.getConsumerGroup(subject);
-                    final byte[] key = keyGenerator.generateDeadRecordKey(RetrySubjectUtils.buildDeadRetrySubject(realSubject), message.getMessageId(), consumerGroup);
+                    final String partitionName = message.getPartitionName();
+                    final String realPartitionName = RetryPartitionUtils.getRealPartitionName(partitionName);
+                    final String consumerGroup = RetryPartitionUtils.getConsumerGroup(partitionName);
+                    final byte[] key = keyGenerator.generateDeadRecordKey(RetryPartitionUtils.buildDeadRetryPartitionName(realPartitionName), message.getMessageId(), consumerGroup);
                     final long createTime = message.getCreateTime() + 500; //为了让死消息的action排在最后面
                     final long sequence = message.getSequence();
                     final byte[] consumerGroupBytes = Bytes.UTF8(consumerGroup);

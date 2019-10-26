@@ -40,7 +40,7 @@ import qunar.tc.qmq.protocol.producer.MessageProducerCode;
 import qunar.tc.qmq.sync.DelaySyncRequest;
 import qunar.tc.qmq.util.RemotingBuilder;
 import qunar.tc.qmq.utils.CharsetUtils;
-import qunar.tc.qmq.utils.RetrySubjectUtils;
+import qunar.tc.qmq.utils.RetryPartitionUtils;
 
 import java.util.ArrayList;
 import java.util.Deque;
@@ -84,8 +84,9 @@ public class Receiver {
         }
 
         return Futures.transform(Futures.allAsList(futures)
-                , (Function<? super List<ReceivedResult>, ? extends Datagram>) results -> RemotingBuilder.buildResponseDatagram(CommandCode.SUCCESS
-                        , cmd.getHeader(), new SendResultPayloadHolder(results)));
+                , (Function<? super List<ReceivedResult>, ? extends Datagram>) results -> {
+                    return RemotingBuilder.buildResponseDatagram(CommandCode.SUCCESS, cmd.getHeader(), new SendResultPayloadHolder(results));
+                });
     }
 
     private void doInvoke(ReceivedDelayMessage message) {
@@ -115,7 +116,7 @@ public class Receiver {
     }
 
     private void monitorMessageReceived(long receiveTime, String subject) {
-        if (RetrySubjectUtils.isRetrySubject(subject) || RetrySubjectUtils.isDeadRetrySubject(subject)) {
+        if (RetryPartitionUtils.isRetryPartitionName(subject) || RetryPartitionUtils.isDeadRetryPartitionName(subject)) {
             QMon.receivedRetryMessagesCountInc(subject);
         }
         QMon.receivedMessagesCountInc(subject);

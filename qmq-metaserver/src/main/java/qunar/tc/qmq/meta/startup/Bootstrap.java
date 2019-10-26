@@ -27,11 +27,14 @@ import qunar.tc.qmq.meta.web.*;
  * @since 2018-12-04
  */
 public class Bootstrap {
+
     public static void main(String[] args) throws Exception {
+
         final ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
         context.setContextPath("/");
         context.setResourceBase(System.getProperty("java.io.tmpdir"));
         DynamicConfig config = DynamicConfigLoader.load("metaserver.properties");
+
         final ServerWrapper wrapper = new ServerWrapper(config);
         wrapper.start(context.getServletContext());
 
@@ -40,6 +43,7 @@ public class Bootstrap {
         context.addServlet(SubjectConsumerServlet.class, "/subject/consumers");
         context.addServlet(OnOfflineServlet.class, "/onoffline");
         context.addServlet(SlaveServerAddressSupplierServlet.class, "/slave/meta");
+        context.addServlet(PartitionManagementServlet.class, "/partition/manage");
 
         // TODO(keli.wang): allow set port use env
         int port = config.getInt("meta.server.discover.port", 8080);

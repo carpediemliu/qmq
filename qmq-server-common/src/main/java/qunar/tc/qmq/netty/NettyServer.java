@@ -24,18 +24,18 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import qunar.tc.qmq.common.Disposable;
-
-import java.util.concurrent.ExecutorService;
 
 /**
  * @author yunfeng.yang
  * @since 2017/6/30
  */
 public class NettyServer implements Disposable {
-    private static final Logger LOG = LoggerFactory.getLogger(NettyServer.class);
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(NettyServer.class);
 
     private final NioEventLoopGroup bossGroup;
     private final NioEventLoopGroup workerGroup;
@@ -43,17 +43,23 @@ public class NettyServer implements Disposable {
     private final ServerBootstrap bootstrap;
     private final NettyServerHandler serverHandler;
     private final ConnectionHandler connectionHandler;
+    private final OutboundExceptionHandler outboundExceptionHandler;
+    private final InboundExceptionHandler inboundExceptionHandler;
 
     private final int port;
     private volatile Channel channel;
 
-    public NettyServer(final String name, final int workerCount, final int port, final ConnectionEventHandler connectionEventHandler) {
+    public NettyServer(final String name, final int workerCount, final int port,
+            final ConnectionEventHandler connectionEventHandler) {
         this.bossGroup = new NioEventLoopGroup(1, new DefaultThreadFactory(name + "-netty-server-boss", true));
-        this.workerGroup = new NioEventLoopGroup(workerCount, new DefaultThreadFactory(name + "-netty-server-worker", true));
+        this.workerGroup = new NioEventLoopGroup(workerCount,
+                new DefaultThreadFactory(name + "-netty-server-worker", true));
         this.port = port;
         this.bootstrap = new ServerBootstrap();
         this.serverHandler = new NettyServerHandler();
         this.connectionHandler = new ConnectionHandler(connectionEventHandler);
+        this.outboundExceptionHandler = new OutboundExceptionHandler();
+        this.inboundExceptionHandler = new InboundExceptionHandler();
     }
 
     public void registerProcessor(final short requestCode, final NettyRequestProcessor processor) {
@@ -61,8 +67,8 @@ public class NettyServer implements Disposable {
     }
 
     public void registerProcessor(final short requestCode,
-                                  final NettyRequestProcessor processor,
-                                  final ExecutorService executorService) {
+            final NettyRequestProcessor processor,
+            final ExecutorService executorService) {
         serverHandler.registerProcessor(requestCode, processor, executorService);
     }
 
@@ -74,18 +80,21 @@ public class NettyServer implements Disposable {
                 .childHandler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
+                        ch.pipeline().addLast("inboundExceptionHandler", inboundExceptionHandler);
                         ch.pipeline().addLast("connectionHandler", connectionHandler);
                         ch.pipeline().addLast("encoder", new EncodeHandler());
                         ch.pipeline().addLast("decoder", new DecodeHandler(true));
+                        ch.pipeline().addLast("outboundExceptionHandler", outboundExceptionHandler);
                         ch.pipeline().addLast("dispatcher", serverHandler);
                     }
                 });
         try {
-            channel = bootstrap.bind(port).await().channel();
+            channel = bootstrap.bind(port).sync().channel();
+            LOGGER.info("listen on port {}", port);
         } catch (InterruptedException e) {
-            LOG.error("server start fail", e);
+            LOGGER.info("server start failed {}", port);
+            throw new RuntimeException(e);
         }
-        LOG.info("listen on port {}", port);
     }
 
     @Override

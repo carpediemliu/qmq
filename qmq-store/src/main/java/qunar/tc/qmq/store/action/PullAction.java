@@ -25,11 +25,11 @@ import qunar.tc.qmq.store.ActionType;
  * @since 2017/8/20
  */
 public class PullAction implements Action {
-    private final String subject;
-    private final String group;
+    private final String partitionName;
+    private final String consumerGroup;
     private final String consumerId;
     private final long timestamp;
-    private final boolean broadcast;
+    private final boolean isExclusiveConsume;
 
     //first sequence of pull log
     private final long firstSequence;
@@ -43,16 +43,16 @@ public class PullAction implements Action {
     //last sequence of consumer log
     private final long lastMessageSequence;
 
-    public PullAction(final String subject, final String group, final String consumerId, long timestamp, boolean broadcast,
+    public PullAction(final String partitionName, final String consumerGroup, final String consumerId, long timestamp, boolean isExclusiveConsume,
                       long firstSequence, long lastSequence,
                       long firstMessageSequence, long lastMessageSequence) {
         Preconditions.checkArgument(lastSequence - firstSequence == lastMessageSequence - firstMessageSequence);
 
-        this.subject = subject;
-        this.group = group;
+        this.partitionName = partitionName;
+        this.consumerGroup = consumerGroup;
         this.consumerId = consumerId;
         this.timestamp = timestamp;
-        this.broadcast = broadcast;
+        this.isExclusiveConsume = isExclusiveConsume;
 
         this.firstSequence = firstSequence;
         this.lastSequence = lastSequence;
@@ -67,13 +67,13 @@ public class PullAction implements Action {
     }
 
     @Override
-    public String subject() {
-        return subject;
+    public String partitionName() {
+        return partitionName;
     }
 
     @Override
-    public String group() {
-        return group;
+    public String consumerGroup() {
+        return consumerGroup;
     }
 
     @Override
@@ -86,8 +86,8 @@ public class PullAction implements Action {
         return timestamp;
     }
 
-    public boolean isBroadcast() {
-        return broadcast;
+    public boolean isExclusiveConsume() {
+        return isExclusiveConsume;
     }
 
     /**
@@ -121,10 +121,10 @@ public class PullAction implements Action {
     @Override
     public String toString() {
         return "PullAction{" +
-                "subject='" + subject + '\'' +
-                ", group='" + group + '\'' +
+                "partitionName='" + partitionName + '\'' +
+                ", consumerGroup='" + consumerGroup + '\'' +
                 ", consumerId='" + consumerId + '\'' +
-                ", broadcast=" + broadcast +
+                ", isExclusiveConsume=" + isExclusiveConsume +
                 ", firstSequence=" + firstSequence +
                 ", lastSequence=" + lastSequence +
                 ", firstMessageSequence=" + firstMessageSequence +

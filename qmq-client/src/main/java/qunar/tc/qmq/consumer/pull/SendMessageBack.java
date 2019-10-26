@@ -18,15 +18,16 @@ package qunar.tc.qmq.consumer.pull;
 
 import qunar.tc.qmq.base.BaseMessage;
 import qunar.tc.qmq.broker.BrokerGroupInfo;
-import qunar.tc.qmq.common.ClientType;
+import qunar.tc.qmq.ClientType;
 
 /**
  * @author yiqun.fan create on 17-8-23.
  */
 public interface SendMessageBack {
+
     void sendBack(BrokerGroupInfo brokerGroup, BaseMessage messages, Callback callback, ClientType clientType);
 
-    void sendBackAndCompleteNack(int nextRetryCount, BaseMessage message, AckEntry ackEntry);
+    void sendBackAndCompleteNack(String brokerGroupName, int nextRetryCount, BaseMessage message, AckEntry ackEntry);
 
     interface Callback {
         void success();

@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import qunar.tc.qmq.common.JsonUtils;
 import qunar.tc.qmq.meta.model.GroupedConsumer;
 import qunar.tc.qmq.meta.route.SubjectConsumerService;
 import qunar.tc.qmq.meta.route.impl.SubjectConsumerServiceImpl;
@@ -36,9 +37,9 @@ import java.util.List;
  * @since 2017/12/5
  */
 public class SubjectConsumerServlet extends HttpServlet {
-    private static final Logger LOG = LoggerFactory.getLogger(SubjectConsumerServlet.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SubjectConsumerServlet.class);
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonUtils.getMapper();
 
     private final SubjectConsumerService subjectConsumerService = new SubjectConsumerServiceImpl();
 
@@ -59,7 +60,7 @@ public class SubjectConsumerServlet extends HttpServlet {
             resp.getWriter().println(MAPPER.writeValueAsString(new JsonResult<>(ResultStatus.OK, "成功", consumers)));
             return;
         } catch (Exception e) {
-            LOG.error("Failed get subject consumers. subject: {}", subject, e);
+            LOGGER.error("Failed get subject consumers. subject: {}", subject, e);
         }
 
         resp.getWriter().println(MAPPER.writeValueAsString(new JsonResult<Boolean>(ResultStatus.SYSTEM_ERROR, "未知错误", null)));

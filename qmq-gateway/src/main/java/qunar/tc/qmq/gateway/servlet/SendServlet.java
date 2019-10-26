@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import qunar.tc.qmq.Message;
 import qunar.tc.qmq.MessageSendStateListener;
+import qunar.tc.qmq.common.JsonUtils;
 import qunar.tc.qmq.producer.MessageProducerProvider;
 
 import javax.servlet.AsyncContext;
@@ -41,16 +42,15 @@ import java.util.Map;
  * 1/16/18
  */
 public class SendServlet extends HttpServlet {
-    private static final Logger logger = LoggerFactory.getLogger(SendServlet.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(SendServlet.class);
 
     private MessageProducerProvider producer;
 
-    private final ObjectMapper MAPPER = new ObjectMapper();
+    private final ObjectMapper MAPPER = JsonUtils.getMapper();
 
     @Override
     public void init(ServletConfig config) throws ServletException {
-        this.producer = new MessageProducerProvider();
-        this.producer.init();
+        this.producer = new MessageProducerProvider(); // TODO(zhenwei.liu) 这里需要写入 appCode, meta server 地址
     }
 
     @Override
@@ -153,7 +153,7 @@ public class SendServlet extends HttpServlet {
             MAPPER.writeValue(resp.getWriter(), result);
             resp.flushBuffer();
         } catch (Exception e) {
-            logger.error("return message error");
+            LOGGER.error("return message error");
         }
     }
 
@@ -166,7 +166,7 @@ public class SendServlet extends HttpServlet {
             response.setContentType("application/json");
             MAPPER.writeValue(response.getWriter(), result);
         } catch (Exception e) {
-            logger.error("return message error {} - {}", message.getSubject(), message.getMessageId());
+            LOGGER.error("return message error {} - {}", message.getSubject(), message.getMessageId());
         } finally {
             asyncContext.complete();
         }
@@ -181,7 +181,7 @@ public class SendServlet extends HttpServlet {
             response.setContentType("application/json");
             MAPPER.writeValue(response.getWriter(), result);
         } catch (Exception e) {
-            logger.error("return message error {} - {}", message.getSubject(), message.getMessageId());
+            LOGGER.error("return message error {} - {}", message.getSubject(), message.getMessageId());
         } finally {
             asyncContext.complete();
         }

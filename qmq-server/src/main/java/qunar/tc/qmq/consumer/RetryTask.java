@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import qunar.tc.qmq.base.ConsumerSequence;
 import qunar.tc.qmq.configuration.DynamicConfig;
+import qunar.tc.qmq.metainfoclient.MetaInfoService;
 import qunar.tc.qmq.monitor.QMon;
 import qunar.tc.qmq.store.Action;
 import qunar.tc.qmq.store.action.RangeAckAction;
@@ -30,7 +31,7 @@ import qunar.tc.qmq.store.action.RangeAckAction;
  * 7/30/18
  */
 class RetryTask {
-    private static final Logger LOG = LoggerFactory.getLogger(RetryTask.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(RetryTask.class);
 
     private final DynamicConfig config;
     private final ConsumerSequenceManager consumerSequenceManager;
@@ -40,6 +41,7 @@ class RetryTask {
     private volatile boolean cancel;
 
     RetryTask(DynamicConfig config, ConsumerSequenceManager consumerSequenceManager, Subscriber subscriber) {
+
         this.config = config;
         this.consumerSequenceManager = consumerSequenceManager;
         this.subscriber = subscriber;
@@ -56,19 +58,19 @@ class RetryTask {
             final double limit = conf.getDouble(key);
             limiter.setRate(limit);
         } catch (Exception e) {
-            LOG.debug("update limiter rate failed", e);
+            LOGGER.debug("update limiter rate failed", e);
         }
     }
 
     void run() {
         if (cancel) return;
 
-        final ConsumerSequence consumerSequence = consumerSequenceManager.getConsumerSequence(subscriber.getSubject(), subscriber.getGroup(), subscriber.getConsumerId());
+        final ConsumerSequence consumerSequence = consumerSequenceManager.getConsumerSequence(subscriber.getPartitionName(), subscriber.getConsumerGroup(), subscriber.getConsumerId());
         if (consumerSequence == null) {
             return;
         }
 
-        QMon.retryTaskExecuteCountInc(subscriber.getSubject(), subscriber.getGroup());
+        QMon.retryTaskExecuteCountInc(subscriber.getPartitionName(), subscriber.getConsumerGroup());
         while (true) {
             limiter.acquire();
 
@@ -80,14 +82,15 @@ class RetryTask {
                 final long lastPulledSequence = consumerSequence.getPullSequence();
                 if (lastPulledSequence < firstNotAckedSequence) return;
 
+
                 subscriber.renew();
 
-                LOG.info("put need retry message in retry task, subject: {}, group: {}, consumerId: {}, ack offset: {}, pull offset: {}",
-                        subscriber.getSubject(), subscriber.getGroup(), subscriber.getConsumerId(), firstNotAckedSequence, lastPulledSequence);
-                consumerSequenceManager.putNeedRetryMessages(subscriber.getSubject(), subscriber.getGroup(), subscriber.getConsumerId(), firstNotAckedSequence, firstNotAckedSequence);
+                LOGGER.info("put need retry message in retry task, partitionName: {}, group: {}, consumerId: {}, ack offset: {}, pull offset: {}",
+                        subscriber.getPartitionName(), subscriber.getConsumerGroup(), subscriber.getConsumerId(), firstNotAckedSequence, lastPulledSequence);
+                consumerSequenceManager.putNeedRetryMessages(subscriber.getPartitionName(), subscriber.getConsumerGroup(), subscriber.getConsumerId(), firstNotAckedSequence, firstNotAckedSequence);
 
                 // put ack action
-                final Action action = new RangeAckAction(subscriber.getSubject(), subscriber.getGroup(), subscriber.getConsumerId(), System.currentTimeMillis(), firstNotAckedSequence, firstNotAckedSequence);
+                final Action action = new RangeAckAction(subscriber.getPartitionName(), subscriber.getConsumerGroup(), subscriber.getConsumerId(), System.currentTimeMillis(), firstNotAckedSequence, firstNotAckedSequence);
                 if (consumerSequenceManager.putAction(action)) {
                     consumerSequence.setAckSequence(firstNotAckedSequence);
                     QMon.consumerAckTimeoutErrorCountInc(subscriber.getConsumerId(), 1);

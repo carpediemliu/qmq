@@ -26,10 +26,7 @@ import qunar.tc.qmq.delay.cleaner.LogCleaner;
 import qunar.tc.qmq.delay.config.StoreConfiguration;
 import qunar.tc.qmq.delay.store.IterateOffsetManager;
 import qunar.tc.qmq.delay.store.log.*;
-import qunar.tc.qmq.delay.store.model.AppendLogResult;
-import qunar.tc.qmq.delay.store.model.LogRecord;
-import qunar.tc.qmq.delay.store.model.RawMessageExtend;
-import qunar.tc.qmq.delay.store.model.ScheduleSetRecord;
+import qunar.tc.qmq.delay.store.model.*;
 import qunar.tc.qmq.delay.wheel.WheelLoadCursor;
 import qunar.tc.qmq.protocol.producer.MessageProducerCode;
 import qunar.tc.qmq.store.LogIterateService;
@@ -62,7 +59,7 @@ public class DefaultDelayLogFacade implements DelayLogFacade {
         this.dispatchLog = new DispatchLog(config);
         this.offsetManager = new IterateOffsetManager(config.getCheckpointStorePath(), scheduleLog::flush);
         FixedExecOrderEventBus bus = new FixedExecOrderEventBus();
-        bus.subscribe(LogRecord.class, e -> {
+        bus.subscribe(MessageLogRecord.class, e -> {
             AppendLogResult<ScheduleIndex> result = appendScheduleLog(e);
             int code = result.getCode();
             if (MessageProducerCode.SUCCESS != code) {
@@ -71,11 +68,11 @@ public class DefaultDelayLogFacade implements DelayLogFacade {
             }
             func.apply(result.getAdditional());
         });
-        bus.subscribe(LogRecord.class, e -> {
+        bus.subscribe(MessageLogRecord.class, e -> {
             long checkpoint = e.getStartWroteOffset() + e.getRecordSize();
             updateIterateOffset(checkpoint);
         });
-        this.messageLogIterateService = new LogIterateService<>("message-log", 5, messageLog, initialMessageIterateFrom(), bus);
+        this.messageLogIterateService = new LogIterateService<>("message-log", 5, messageLog, offsetManager.getIterateOffset(), bus);
         this.logFlusher = new LogFlusher(messageLog, offsetManager, dispatchLog);
         this.cleaner = new LogCleaner(config, dispatchLog, scheduleLog, messageLog);
     }
@@ -187,18 +184,6 @@ public class DefaultDelayLogFacade implements DelayLogFacade {
     @Override
     public AppendLogResult<ScheduleIndex> appendScheduleLog(LogRecord event) {
         return scheduleLog.append(event);
-    }
-
-    @Override
-    public long initialMessageIterateFrom() {
-        long iterateOffset = offsetManager.getIterateOffset();
-        if (iterateOffset <= 0) {
-            return getMessageLogMaxOffset();
-        }
-        if (iterateOffset > getMessageLogMaxOffset()) {
-            return getMessageLogMaxOffset();
-        }
-        return iterateOffset;
     }
 
     @Override

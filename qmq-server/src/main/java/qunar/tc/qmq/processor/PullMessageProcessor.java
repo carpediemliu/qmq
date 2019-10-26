@@ -58,7 +58,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-import static qunar.tc.qmq.protocol.RemotingHeader.VERSION_8;
+import static qunar.tc.qmq.protocol.RemotingHeader.supportTags;
 import static qunar.tc.qmq.util.RemotingBuilder.buildResponseHeader;
 
 /**
@@ -66,7 +66,7 @@ import static qunar.tc.qmq.util.RemotingBuilder.buildResponseHeader;
  * @since 2017/7/4
  */
 public class PullMessageProcessor extends AbstractRequestProcessor implements FixedExecOrderEventBus.Listener<ConsumerLogWroteEvent> {
-    private static final Logger LOG = LoggerFactory.getLogger(PullMessageProcessor.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(PullMessageProcessor.class);
 
     private static final int DEFAULT_NETWORK_TIMEOUT = 5000;
     private static final int DEFAULT_MAX_LOAD_TIME = 2500;
@@ -97,10 +97,10 @@ public class PullMessageProcessor extends AbstractRequestProcessor implements Fi
         final PullRequest pullRequest = pullRequestSerde.read(command.getHeader().getVersion(), command.getBody());
 
         BrokerStats.getInstance().getLastMinutePullRequestCount().add(1);
-        QMon.pullRequestCountInc(pullRequest.getSubject(), pullRequest.getGroup());
+        QMon.pullRequestCountInc(pullRequest.getPartitionName(), pullRequest.getGroup());
 
         if (!checkAndRepairPullRequest(pullRequest)) {
-            return CompletableFuture.completedFuture(crateErrorParamResult(command));
+            return CompletableFuture.completedFuture(crateEmptyResult(command));
         }
 
         subscribe(pullRequest);
@@ -110,19 +110,18 @@ public class PullMessageProcessor extends AbstractRequestProcessor implements Fi
         return null;
     }
 
-    // TODO(keli.wang): how to handle broadcast subscriber correctly?
     private void subscribe(PullRequest pullRequest) {
-        if (pullRequest.isBroadcast()) return;
+        if (pullRequest.isExclusiveConsume()) return;
 
-        final String subject = pullRequest.getSubject();
+        final String partitionName = pullRequest.getPartitionName();
         final String group = pullRequest.getGroup();
         final String consumerId = pullRequest.getConsumerId();
-        subscriberStatusChecker.addSubscriber(subject, group, consumerId);
-        subscriberStatusChecker.heartbeat(consumerId, subject, group);
+        subscriberStatusChecker.addSubscriber(partitionName, group, consumerId);
+        subscriberStatusChecker.heartbeat(partitionName, group, consumerId);
     }
 
     private boolean checkAndRepairPullRequest(PullRequest pullRequest) {
-        final String subject = pullRequest.getSubject();
+        final String subject = pullRequest.getPartitionName();
         final String group = pullRequest.getGroup();
         final String consumerId = pullRequest.getConsumerId();
 
@@ -131,7 +130,7 @@ public class PullMessageProcessor extends AbstractRequestProcessor implements Fi
                 || Strings.isNullOrEmpty(consumerId)
                 || hasIllegalPart(subject, group, consumerId)) {
             QMon.pullParamErrorCountInc(subject, group);
-            LOG.warn("receive pull request param error, request: {}", pullRequest);
+            LOGGER.warn("receive pull request param error, request: {}", pullRequest);
             return false;
         }
 
@@ -162,7 +161,7 @@ public class PullMessageProcessor extends AbstractRequestProcessor implements Fi
         return false;
     }
 
-    private Datagram crateErrorParamResult(RemotingCommand command) {
+    private Datagram crateEmptyResult(RemotingCommand command) {
         return RemotingBuilder.buildEmptyResponseDatagram(CommandCode.NO_MESSAGE, command.getHeader());
     }
 
@@ -261,7 +260,7 @@ public class PullMessageProcessor extends AbstractRequestProcessor implements Fi
 
         PullEntry(PullRequest pullRequest, RemotingHeader requestHeader, ChannelHandlerContext ctx) {
             this.pullRequest = pullRequest;
-            this.subject = pullRequest.getSubject();
+            this.subject = pullRequest.getPartitionName();
             this.group = pullRequest.getGroup();
             this.requestHeader = requestHeader;
             this.ctx = ctx;
@@ -313,6 +312,10 @@ public class PullMessageProcessor extends AbstractRequestProcessor implements Fi
         }
 
         void processMessageResult(PullMessageResult pullMessageResult) {
+            if (pullMessageResult.isReject()) {
+                ctx.writeAndFlush(RemotingBuilder.buildEmptyResponseDatagram(CommandCode.BROKER_REJECT, requestHeader));
+                return;
+            }
             if (pullMessageResult.getMessageNum() <= 0) {
                 processNoMessageResult();
                 return;
@@ -340,7 +343,7 @@ public class PullMessageProcessor extends AbstractRequestProcessor implements Fi
                 for (final Buffer buffer : buffers) {
                     ByteBuffer message = buffer.getBuffer();
                     //新客户端拉取消息
-                    if (requestHeader.getVersion() >= VERSION_8) {
+                    if (supportTags(requestHeader.getVersion())) {
                         output.writeBytes(message);
                     } else {
                         //老客户端拉取消息

@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import qunar.tc.qmq.Message;
 import qunar.tc.qmq.PullConsumer;
+import qunar.tc.qmq.common.JsonUtils;
 import qunar.tc.qmq.consumer.MessageConsumerProvider;
 import qunar.tc.qmq.metrics.Metrics;
 import qunar.tc.qmq.metrics.MetricsConstants;
@@ -43,11 +44,11 @@ import java.util.concurrent.TimeUnit;
  * 9/29/17
  */
 public class PullServlet extends HttpServlet {
-    private static final Logger logger = LoggerFactory.getLogger(PullServlet.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(PullServlet.class);
 
     private MessageConsumerProvider consumer;
 
-    private final ObjectMapper MAPPER = new ObjectMapper();
+    private final ObjectMapper MAPPER = JsonUtils.getMapper();
 
     private Executor writeExecutor;
 
@@ -56,6 +57,7 @@ public class PullServlet extends HttpServlet {
     @Override
     public void init() throws ServletException {
         consumer = new MessageConsumerProvider();
+        consumer.setMetaServer(null); // TODO(zhenwei.liu) 这个 meta server 地址从哪儿来
         consumer.init();
         writeExecutor = Executors.newCachedThreadPool();
     }
@@ -108,14 +110,14 @@ public class PullServlet extends HttpServlet {
                     Map<String, Object> result = new HashMap<>();
                     result.put("state", "-1");
                     result.put("error", e.getMessage());
-                    logger.error("error", e);
+                    LOGGER.error("error", e);
                     write(subject, group, result, asyncContext);
                 } finally {
                     Metrics.timer("pullMessageTime", MetricsConstants.SUBJECT_GROUP_ARRAY, new String[]{subject, group}).update(System.currentTimeMillis() - start, TimeUnit.MILLISECONDS);
                     asyncContext.complete();
                 }
             } catch (Exception ex) {
-                logger.error("error", ex);
+                LOGGER.error("error", ex);
             }
         }, writeExecutor);
     }
@@ -143,7 +145,7 @@ public class PullServlet extends HttpServlet {
             String content = MAPPER.writeValueAsString(result);
             response.getWriter().write(content);
         } catch (Exception e) {
-            logger.error("write message out failed {}-{}", subject, group, e);
+            LOGGER.error("write message out failed {}-{}", subject, group, e);
         }
     }
 
@@ -154,7 +156,7 @@ public class PullServlet extends HttpServlet {
             String content = MAPPER.writeValueAsString(result);
             response.getWriter().write(content);
         } catch (IOException e) {
-            logger.error("write client failed");
+            LOGGER.error("write client failed");
         }
     }
 

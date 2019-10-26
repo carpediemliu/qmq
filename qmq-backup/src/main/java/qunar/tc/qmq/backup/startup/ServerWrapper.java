@@ -40,6 +40,8 @@ import qunar.tc.qmq.configuration.DynamicConfig;
 import qunar.tc.qmq.meta.BrokerRegisterService;
 import qunar.tc.qmq.meta.BrokerRole;
 import qunar.tc.qmq.meta.MetaServerLocator;
+import qunar.tc.qmq.metainfoclient.DefaultMetaInfoService;
+import qunar.tc.qmq.metainfoclient.MetaInfoService;
 import qunar.tc.qmq.store.*;
 import qunar.tc.qmq.store.event.FixedExecOrderEventBus;
 import qunar.tc.qmq.sync.MasterSlaveSyncManager;
@@ -55,7 +57,7 @@ import static qunar.tc.qmq.backup.service.DicService.SIX_DIGIT_FORMAT_PATTERN;
 import static qunar.tc.qmq.constants.BrokerConstants.*;
 
 public class ServerWrapper implements Disposable {
-    private static final Logger LOG = LoggerFactory.getLogger(ServerWrapper.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(ServerWrapper.class);
 
     private final BackupConfig config;
     private final BackupConfig deadConfig;
@@ -88,21 +90,23 @@ public class ServerWrapper implements Disposable {
             final DynamicConfig deadLocalConfig = deadConfig.getDynamicConfig();
             int listenPort = localConfig.getInt(PORT_CONFIG, DEFAULT_PORT);
             final MetaServerLocator metaServerLocator = new MetaServerLocator(localConfig.getString(META_SERVER_ENDPOINT));
+            DefaultMetaInfoService metaInfoService = new DefaultMetaInfoService(metaServerLocator);
+            metaInfoService.init();
             BrokerRegisterService brokerRegisterService = new BrokerRegisterService(listenPort, metaServerLocator);
             brokerRegisterService.start();
             if (BrokerConfig.getBrokerRole() != BrokerRole.BACKUP) {
-                LOG.error("Config error,({})'s role is not backup.", NetworkUtils.getLocalHostname());
+                LOGGER.error("Config error,({})'s role is not backup.", NetworkUtils.getLocalHostname());
                 throw new IllegalArgumentException("Config error, the role is not backup");
             }
             config.setBrokerGroup(BrokerConfig.getBrokerName());
-            register(localConfig, deadLocalConfig);
+            register(localConfig, deadLocalConfig, metaInfoService);
         } catch (Exception e) {
-            LOG.error("backup server start up failed.", e);
+            LOGGER.error("backup server start up failed.", e);
             Throwables.propagate(e);
         }
     }
 
-    private void register(final DynamicConfig config, final DynamicConfig deadConfig) {
+    private void register(final DynamicConfig config, final DynamicConfig deadConfig, final MetaInfoService metaInfoService) {
         BrokerRole role = BrokerConfig.getBrokerRole();
         if (role != BrokerRole.BACKUP) throw new RuntimeException("Only support backup");
 
@@ -151,7 +155,7 @@ public class ServerWrapper implements Disposable {
 
         // action
         final RocksDBStore rocksDBStore = new RocksDBStoreImpl(config);
-        final BatchBackup<ActionRecord> recordBackup = new RecordBatchBackup(this.config, keyGenerator, rocksDBStore, recordStore);
+        final BatchBackup<ActionRecord> recordBackup = new RecordBatchBackup(metaInfoService, this.config, keyGenerator, rocksDBStore, recordStore);
         backupManager.registerBatchBackup(recordBackup);
 
         final SyncLogIterator<Action, ByteBuf> actionIterator = new ActionSyncLogIterator();
@@ -219,7 +223,7 @@ public class ServerWrapper implements Disposable {
                 Disposable disposable = resources.get(i);
                 if (disposable != null) disposable.destroy();
             } catch (Throwable e) {
-                LOG.error("destroy resource failed", e);
+                LOGGER.error("destroy resource failed", e);
             }
         }
     }

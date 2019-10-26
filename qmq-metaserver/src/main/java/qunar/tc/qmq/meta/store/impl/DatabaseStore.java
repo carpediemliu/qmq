@@ -16,13 +16,20 @@
 
 package qunar.tc.qmq.meta.store.impl;
 
+import static qunar.tc.qmq.common.JsonUtils.serialize;
+
 import com.fasterxml.jackson.core.type.TypeReference;
+import java.sql.Timestamp;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-
+import qunar.tc.qmq.ConsumeStrategy;
+import qunar.tc.qmq.common.JsonUtils;
 import qunar.tc.qmq.jdbc.JdbcTemplateHolder;
 import qunar.tc.qmq.meta.BrokerGroup;
 import qunar.tc.qmq.meta.BrokerGroupKind;
@@ -32,19 +39,13 @@ import qunar.tc.qmq.meta.model.SubjectRoute;
 import qunar.tc.qmq.meta.store.Store;
 import qunar.tc.qmq.protocol.consumer.MetaInfoRequest;
 
-import java.sql.Timestamp;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
-
-import static qunar.tc.qmq.meta.store.impl.Serializer.serialize;
-
 /**
  * @author yunfeng.yang
  * @since 2017/8/31
  */
 public class DatabaseStore implements Store {
-    private static final Logger LOG = LoggerFactory.getLogger(DatabaseStore.class);
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(DatabaseStore.class);
 
     private static final String INSERT_SUBJECT_ROUTE_SQL = "INSERT IGNORE INTO subject_route(subject_info, version, broker_group_json, create_time) VALUES(?, ?, ?, ?)";
     private static final String UPDATE_SUBJECT_ROUTE_SQL = "UPDATE subject_route SET broker_group_json = ?, version = version + 1 WHERE subject_info = ? AND version = ?";
@@ -57,7 +58,7 @@ public class DatabaseStore implements Store {
     private static final String UPDATE_BROKER_GROUP_TAG_SQL = "UPDATE broker_group SET tag = ? WHERE group_name = ?";
     private static final String INSERT_OR_UPDATE_BROKER_GROUP_SQL = "INSERT INTO broker_group(group_name,kind,master_address,broker_state,create_time) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE master_address=?,broker_state=?";
 
-    private static final String INSERT_CLIENT_META_INFO_SQL = "INSERT IGNORE INTO client_meta_info(subject_info,client_type,consumer_group,client_id,app_code,create_time) VALUES(?, ?, ?, ?, ?, ?)";
+    private static final String INSERT_CLIENT_META_INFO_SQL = "INSERT INTO client_meta_info(subject_info,client_type,consumer_group,client_id,app_code, consume_strategy, create_time) VALUES(?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE online_status = ?, update_time = now()";
 
     private static final String INSERT_SUBJECT_INFO_SQL = "INSERT INTO subject_info(name,tag,create_time) VALUES(?,?,?)";
     private static final String ALL_SUBJECT_INFO_SQL = "SELECT name, tag, update_time FROM subject_info";
@@ -79,7 +80,7 @@ public class DatabaseStore implements Store {
         final String groupInfoJson = rs.getString("broker_group_json");
         final Timestamp updateTime = rs.getTimestamp("update_time");
         final int version = rs.getInt("version");
-        final List<String> groupNames = Serializer.deSerialize(groupInfoJson, new TypeReference<List<String>>() {
+        final List<String> groupNames = JsonUtils.deSerialize(groupInfoJson, new TypeReference<List<String>>() {
         });
         final SubjectRoute subjectRoute = new SubjectRoute();
         subjectRoute.setSubject(subject);
@@ -97,11 +98,7 @@ public class DatabaseStore implements Store {
         return subjectInfo;
     };
 
-    private final JdbcTemplate jdbcTemplate;
-
-    public DatabaseStore(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
+    private final JdbcTemplate jdbcTemplate = JdbcTemplateHolder.getOrCreate();
 
     @Override
     public int insertSubjectRoute(String subject, int version, List<String> groupNames) {
@@ -122,9 +119,11 @@ public class DatabaseStore implements Store {
     }
 
     @Override
-    public void insertOrUpdateBrokerGroup(final String groupName, final BrokerGroupKind kind, final String masterAddress, final BrokerState brokerState) {
+    public void insertOrUpdateBrokerGroup(final String groupName, final BrokerGroupKind kind,
+            final String masterAddress, final BrokerState brokerState) {
         final Timestamp now = new Timestamp(System.currentTimeMillis());
-        jdbcTemplate.update(INSERT_OR_UPDATE_BROKER_GROUP_SQL, groupName, kind.getCode(), masterAddress, brokerState.getCode(), now, masterAddress, brokerState.getCode());
+        jdbcTemplate.update(INSERT_OR_UPDATE_BROKER_GROUP_SQL, groupName, kind.getCode(), masterAddress,
+                brokerState.getCode(), now, masterAddress, brokerState.getCode());
     }
 
     @Override
@@ -152,7 +151,7 @@ public class DatabaseStore implements Store {
         try {
             return jdbcTemplate.query(FIND_SUBJECT_ROUTE_SQL, SUBJECT_ROUTE_ROW_MAPPER);
         } catch (Exception e) {
-            LOG.error("getAllSubjectRoutes error", e);
+            LOGGER.error("getAllSubjectRoutes error", e);
             return Collections.emptyList();
         }
     }
@@ -162,7 +161,7 @@ public class DatabaseStore implements Store {
         try {
             return jdbcTemplate.query(ALL_SUBJECT_INFO_SQL, SUBJECT_INFO_ROW_MAPPER);
         } catch (Exception e) {
-            LOG.error("getAllSubjectInfo error", e);
+            LOGGER.error("getAllSubjectInfo error", e);
             return Collections.emptyList();
         }
     }
@@ -172,7 +171,7 @@ public class DatabaseStore implements Store {
         try {
             return jdbcTemplate.queryForObject(QUERY_SUBJECT_INFO_SQL, SUBJECT_INFO_ROW_MAPPER, subject);
         } catch (Exception e) {
-            LOG.error("getAllSubjectInfo error", e);
+            LOGGER.error("getAllSubjectInfo error", e);
             return null;
         }
     }
@@ -189,7 +188,9 @@ public class DatabaseStore implements Store {
     @Override
     public void insertClientMetaInfo(MetaInfoRequest request) {
         final Timestamp now = new Timestamp(System.currentTimeMillis());
+        ConsumeStrategy consumeStrategy = request.getConsumeStrategy();
         jdbcTemplate.update(INSERT_CLIENT_META_INFO_SQL, request.getSubject(), request.getClientTypeCode(),
-                request.getConsumerGroup(), request.getClientId(), request.getAppCode(), now);
+                request.getConsumerGroup(), request.getClientId(), request.getAppCode(),
+                consumeStrategy == null ? "" : consumeStrategy.name(), now, request.getOnlineState().name());
     }
 }

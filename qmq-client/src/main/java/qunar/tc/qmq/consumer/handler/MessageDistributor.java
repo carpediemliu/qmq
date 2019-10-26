@@ -15,23 +15,19 @@
  */
 package qunar.tc.qmq.consumer.handler;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
+import java.util.concurrent.Executor;
 import qunar.tc.qmq.ListenerHolder;
 import qunar.tc.qmq.MessageListener;
 import qunar.tc.qmq.SubscribeParam;
 import qunar.tc.qmq.consumer.register.ConsumerRegister;
 import qunar.tc.qmq.consumer.register.RegistParam;
 
-import java.util.concurrent.Executor;
-
-import static qunar.tc.qmq.common.StatusSource.CODE;
-
 /**
  * @author miao.yang susing@gmail.com
  * @date 2012-12-28
  */
 public class MessageDistributor {
+
     private final ConsumerRegister register;
 
     private String clientId;
@@ -40,23 +36,20 @@ public class MessageDistributor {
         this.register = register;
     }
 
-    public ListenerHolder addListener(final String subject, final String consumerGroup, MessageListener listener, Executor executor, SubscribeParam subscribeParam) {
-        Preconditions.checkArgument(!Strings.isNullOrEmpty(consumerGroup));
-
+    public ListenerHolder addListener(final String subject, final String consumerGroup, MessageListener listener,
+            Executor executor, SubscribeParam subscribeParam) {
         final RegistParam registParam = new RegistParam(executor, listener, subscribeParam, clientId);
-        registParam.setBroadcast(subscribeParam.isBroadcast());
-        register.regist(subject, consumerGroup, registParam);
+        register.registerPullEntry(subject, consumerGroup, registParam);
         return new ListenerHolder() {
 
             @Override
             public void stopListen() {
-                register.unregist(subject, consumerGroup);
+                register.suspend(subject, consumerGroup);
             }
 
             @Override
             public void resumeListen() {
-                registParam.setActionSrc(CODE);
-                register.regist(subject, consumerGroup, registParam);
+                register.resume(subject, consumerGroup);
             }
         };
     }

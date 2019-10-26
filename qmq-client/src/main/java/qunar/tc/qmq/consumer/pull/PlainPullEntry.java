@@ -16,40 +16,131 @@
 
 package qunar.tc.qmq.consumer.pull;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeoutException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import qunar.tc.qmq.ClientType;
+import qunar.tc.qmq.ConsumeStrategy;
 import qunar.tc.qmq.Message;
 import qunar.tc.qmq.broker.BrokerClusterInfo;
 import qunar.tc.qmq.broker.BrokerGroupInfo;
 import qunar.tc.qmq.broker.BrokerService;
-import qunar.tc.qmq.common.ClientType;
-
-import java.util.List;
 
 /**
  * @author yiqun.fan create on 17-9-21.
  */
 class PlainPullEntry extends AbstractPullEntry {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(PlainPullEntry.class);
+
+    private final BrokerService brokerService;
     private final ConsumeParam consumeParam;
     private final PullStrategy pullStrategy;
 
-    PlainPullEntry(ConsumeParam consumeParam, PullService pullService, AckService ackService, BrokerService brokerService, PullStrategy pullStrategy) {
-        super(consumeParam.getSubject(), consumeParam.getGroup(), pullService, ackService, brokerService);
+    PlainPullEntry(
+            ConsumeParam consumeParam,
+            String partitionName,
+            String brokerGroup,
+            String consumerId,
+            ConsumeStrategy consumeStrategy,
+            int allocationVersion,
+            long consumptionExpiredTime,
+            PullService pullService,
+            AckService ackService,
+            BrokerService brokerService,
+            PullStrategy pullStrategy,
+            int partitionSetVersion,
+            SendMessageBack sendMessageBack) {
+        super(
+                consumeParam.getSubject(),
+                consumeParam.getConsumerGroup(),
+                partitionName,
+                brokerGroup,
+                consumerId,
+                consumeStrategy,
+                allocationVersion,
+                consumeParam.isBroadcast(),
+                consumeParam.isOrdered(),
+                partitionSetVersion,
+                consumptionExpiredTime,
+                pullService,
+                ackService,
+                brokerService,
+                sendMessageBack);
         this.consumeParam = consumeParam;
         this.pullStrategy = pullStrategy;
+        this.brokerService = brokerService;
     }
 
     PlainPullResult pull(final int fetchSize, final int pullTimeout, final List<Message> output) {
-        if (!pullStrategy.needPull()) return PlainPullResult.NOMORE_MESSAGE;
-        BrokerClusterInfo brokerCluster = brokerService.getClusterBySubject(ClientType.CONSUMER, consumeParam.getSubject(), consumeParam.getGroup());
+        if (!pullStrategy.needPull()) {
+            return PlainPullResult.NOMORE_MESSAGE;
+        }
+        BrokerClusterInfo brokerCluster = brokerService
+                .getConsumerBrokerCluster(ClientType.CONSUMER, consumeParam.getSubject());
         List<BrokerGroupInfo> groups = brokerCluster.getGroups();
         if (groups.isEmpty()) {
             return PlainPullResult.NO_BROKER;
         }
-        BrokerGroupInfo group = loadBalance.select(brokerCluster);
-        List<PulledMessage> received = pull(consumeParam, group, fetchSize, pullTimeout, null);
+        BrokerGroupInfo brokerGroup = brokerCluster.getGroupByName(getBrokerGroup());
+        List<PulledMessage> received = pull(consumeParam, brokerGroup, fetchSize, pullTimeout, null);
         output.addAll(received);
         pullStrategy.record(received.size() > 0);
         return PlainPullResult.NOMORE_MESSAGE;
+    }
+
+    protected void markFailed(BrokerGroupInfo group) {
+        super.markFailed(group);
+    }
+
+    protected List<PulledMessage> pull(ConsumeParam consumeParam, BrokerGroupInfo brokerGroupInfo, int pullSize,
+            int pullTimeout, AckHook ackHook) {
+        pullWorkCounter.inc();
+        AckSendInfo ackSendInfo = ackSendQueue.getAckSendInfo();
+        final PullParam pullParam = buildPullParam(consumeParam, brokerGroupInfo, ackSendInfo, pullSize, pullTimeout);
+        try {
+            PullResult pullResult = pullService.pull(pullParam);
+            List<PulledMessage> pulledMessages = handlePullResult(pullParam, pullResult, ackHook);
+            brokerGroupInfo.markSuccess();
+            recordPullSize(pulledMessages, pullSize);
+            return pulledMessages;
+        } catch (ExecutionException e) {
+            markFailed(brokerGroupInfo);
+            Throwable cause = e.getCause();
+            //超时异常暂时不打印日志了
+            if (cause instanceof TimeoutException) {
+                return Collections.emptyList();
+            }
+            LOGGER.error("pull message exception. {}", pullParam, e);
+        } catch (Exception e) {
+            markFailed(brokerGroupInfo);
+            LOGGER.error("pull message exception. {}", pullParam, e);
+        }
+        return Collections.emptyList();
+    }
+
+    private void recordPullSize(List<PulledMessage> received, int pullSize) {
+        if (received.size() == 0) {
+            return;
+        }
+
+        if (received.size() >= pullSize) {
+            return;
+        }
+    }
+
+    @Override
+    public void startPull(ExecutorService executor) {
+
+    }
+
+    @Override
+    public void online() {
+
     }
 
     enum PlainPullResult {
